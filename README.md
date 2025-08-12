@@ -1,5 +1,3 @@
-# Drone Sweeper
-# A light weight browser based spectrum analyzer with API support
 # Drone Sweeper — RF-Driven Drone Detection at the Edge
 
 ## Overview
