@@ -11,8 +11,9 @@ Supports:
 - **Other SoapySDR-compatible SDRs**
 
 Runs on:
-- **NVIDIA Jetson Orin Nano / Xavier NX / Nano**
+- **NVIDIA Jetson Orin Nano Super**
 - **Raspberry Pi 5 with Hailo AI Hat**
+- **Raspberry Pi 4 (reduced features mode)**
 - **Standard Linux x86_64 systems**
 - **Windows and Apple M-Series devices support TBD**
 
