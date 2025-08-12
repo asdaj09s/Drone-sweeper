@@ -16,6 +16,7 @@ Runs on:
 - **NVIDIA Jetson Orin Nano / Xavier NX / Nano**
 - **Raspberry Pi 5 with Hailo AI Hat**
 - **Standard Linux x86_64 systems**
+- **Windows and Apple M-Series devices support TBD**
 
 ---
 
