@@ -34,6 +34,48 @@ Runs on:
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph Radios
+    H[HackRF One]:::sdr
+    B[bladeRF 2.0 A9]:::sdr
+    R[RSPduo]:::sdr
+  end
+
+  H & B --> S1[RF Sweep / Peak Picking<br/>bin clustering + thresholds]:::pi
+  S1 --> M1{Mark Writer}:::pi
+  M1 -->|JSONL mark| UI[Web UI<br/>/latest, /marks]:::ui
+  M1 -->|auto-cap hit| IQ[.iq capture]:::fs
+
+  %% Enrichment paths
+  IQ --> NPU[On‑Device Classifier<br/>(Jetson Orin / Pi5+AI HAT)<br/>TensorRT / HailoRT]:::ai
+  M1 --> OAI[(Optional) OpenAI Enrichment<br/>label, confidence, suggestion]:::cloud
+  NPU --> ENR[Enriched Mark<br/>(*_marks_enriched.jsonl)]:::fs
+  OAI --> ENR
+  ENR --> UI
+
+  %% Alerts
+  ENR --> TTS[Audio Alert<br/>(browser TTS / MP3)]:::ux
+  ENR --> MAIL[Email / Push]:::ux
+
+  %% AoA path
+  UI -->|user clicks "AoA"| AOA[AoA Engine (SoapySDR)<br/>RSPduo / coherent SDR]:::pi
+  AOA --> COT[CoT/ATAK Event<br/>bearing fan / remarks]:::net
+  COT --> UI
+
+  classDef sdr fill:#eef,stroke:#88a,stroke-width:1px;
+  classDef pi fill:#efe,stroke:#6a6,stroke-width:1px;
+  classDef ui fill:#ffe,stroke:#aa6,stroke-width:1px;
+  classDef fs fill:#f7f7f7,stroke:#bbb,stroke-width:1px;
+  classDef ai fill:#eaf7ff,stroke:#59a,stroke-width:1px;
+  classDef cloud fill:#f0eaff,stroke:#95a,stroke-width:1px;
+  classDef ux fill:#fff2e6,stroke:#c96,stroke-width:1px;
+  classDef net fill:#e6fff2,stroke:#6c9,stroke-width:1px;
+
+---
+
 ## Installation
 
 ### Prerequisites
