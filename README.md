@@ -6,6 +6,8 @@ It detects control signals in known drone frequency bands, flags suspicious acti
 
 Supports:
 - **HackRF One**
+
+Indevelopment:
 - **BladeRF 2.0 A9**
 - **SDRplay RSPduo**
 - **Other SoapySDR-compatible SDRs**
@@ -53,7 +55,29 @@ Runs on:
 - `SoapySDR` library and SDR-specific drivers
 - Optional: NVIDIA Jetson + TensorRT for accelerated AI
 
-### Clone the Repository
+
+## Quick Start
+
 ```bash
-git clone https://github.com/yourusername/drone-sweeper.git
-cd drone-sweeper
+git clone https://github.com/asdaj09s/Drone-sweeper.git
+cd Drone-sweeper
+
+# 1) System packages (Debian/Ubuntu/RPi OS)
+sudo apt-get update
+sudo apt-get install -y hackrf espeak-ng python3 python3-venv python3-pip \
+                        libsoapysdr0.8-2 soapysdr-tools  # SoapySDR optional (for AoA)
+
+# 2) (Optional) udev permissions for HackRF
+echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="1d50", ATTR{idProduct}=="6089", MODE="0666"' | \
+  sudo tee /etc/udev/rules.d/52-hackrf.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
+
+# 3) Python env
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 4) Run the web UI
+python3 drone_sweeper_pi4.py ui --dir ./data --port 8081
+# Open: http://<pi-or-host>:8081
