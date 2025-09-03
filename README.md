@@ -64,8 +64,7 @@ cd Drone-sweeper
 
 # 1) System packages (Debian/Ubuntu/RPi OS)
 sudo apt-get update
-sudo apt-get install -y hackrf espeak-ng python3 python3-venv python3-pip \
-                        libsoapysdr0.8-2 soapysdr-tools  # SoapySDR optional (for AoA)
+sudo apt-get install -y hackrf espeak-ng python3 python3-venv python3-pip libsoapysdr0.8-2 soapysdr-tools  # SoapySDR optional (for AoA)
 
 # 2) (Optional) udev permissions for HackRF
 echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="1d50", ATTR{idProduct}=="6089", MODE="0666"' | \
