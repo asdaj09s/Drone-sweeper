@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Drone Sweeper — Desktop UI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='base.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='desktop.css') }}" />
+  </head>
+  <body class="layout-desktop">
+    <header class="top-bar">
+      <h1>Drone Sweeper</h1>
+      <p class="subtitle">Desktop Situational Awareness Console</p>
+    </header>
+    <main class="content-grid">
+      <section class="card detections" aria-labelledby="detections-title">
+        <header>
+          <h2 id="detections-title">Detections</h2>
+          <button type="button" id="refresh-button" class="refresh">Refresh</button>
+        </header>
+        <ul id="detection-list" class="detection-list" aria-live="polite"></ul>
+      </section>
+      <section class="card map" aria-labelledby="map-title">
+        <header>
+          <h2 id="map-title">Map</h2>
+        </header>
+        <div id="map-view" class="map-view" role="img" aria-label="Detection map"></div>
+      </section>
+    </main>
+    <footer class="footer">
+      <span id="last-updated" aria-live="polite"></span>
+    </footer>
+    <script src="{{ url_for('static', filename='app.js') }}" type="module"></script>
+  </body>
+</html>

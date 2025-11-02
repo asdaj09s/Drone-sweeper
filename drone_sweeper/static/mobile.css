@@ -1,0 +1,39 @@
+.layout-mobile {
+  padding: 0 1rem 1.25rem;
+}
+
+.mobile-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1rem;
+  flex: 1;
+}
+
+.card {
+  padding: 1rem;
+}
+
+.detection-item {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.detection-item strong {
+  font-size: 1.05rem;
+}
+
+.detection-item .meta {
+  font-size: 0.9rem;
+}
+
+.map-view {
+  min-height: 14rem;
+}
+
+@supports (padding: max(0px)) {
+  .layout-mobile {
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+}

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Drone Sweeper — Mobile UI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='base.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='mobile.css') }}" />
+  </head>
+  <body class="layout-mobile">
+    <header class="top-bar">
+      <h1>Drone Sweeper</h1>
+      <p class="subtitle">Field Ops View</p>
+    </header>
+    <main class="mobile-stack">
+      <section class="card detections" aria-labelledby="mobile-detections-title">
+        <header class="card-header">
+          <h2 id="mobile-detections-title">Latest Detections</h2>
+          <button type="button" id="refresh-button" class="refresh icon" aria-label="Refresh detections"></button>
+        </header>
+        <ul id="detection-list" class="detection-list" aria-live="polite"></ul>
+      </section>
+      <section class="card map" aria-labelledby="mobile-map-title">
+        <header class="card-header">
+          <h2 id="mobile-map-title">Map</h2>
+        </header>
+        <div id="map-view" class="map-view" role="img" aria-label="Detection map"></div>
+      </section>
+    </main>
+    <footer class="footer">
+      <span id="last-updated" aria-live="polite">Waiting for data…</span>
+    </footer>
+    <script src="{{ url_for('static', filename='app.js') }}" type="module"></script>
+  </body>
+</html>

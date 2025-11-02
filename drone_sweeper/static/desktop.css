@@ -1,0 +1,25 @@
+.layout-desktop {
+  padding: 0 1.5rem 1.5rem;
+}
+
+.content-grid {
+  margin-top: 1.25rem;
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 1.5rem;
+  flex: 1;
+}
+
+.detections {
+  min-height: 20rem;
+}
+
+.map {
+  min-height: 20rem;
+}
+
+@media (max-width: 1200px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+}

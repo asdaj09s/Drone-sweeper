@@ -86,9 +86,13 @@ python3 -m drone_sweeper.cli \
   --tdoa-log data/tdoa.jsonl \
   --print-json
 
-# (Legacy) Run the web UI
-python3 drone_sweeper_pi4.py ui --dir ./data --port 8081
+# Run the web UI (desktop)
+python -m drone_sweeper.webapp --data-dir ./data --ui-mode desktop --port 8081
 # Open: http://<pi-or-host>:8081
+
+# Run the web UI (mobile-first layout)
+python -m drone_sweeper.webapp --data-dir ./data --ui-mode mobile --port 8082
+# Open: http://<pi-or-host>:8082
 
 ```
 
@@ -115,6 +119,30 @@ python3 -m drone_sweeper.cli \
   --min-power -30 \
   --print-json
 ```
+
+### Web UI modes
+
+The `drone_sweeper.webapp` module exposes a lightweight Flask server that reads
+`detections.jsonl` and `map.geojson` artifacts from `--data-dir` and serves the
+same API feed to both desktop and mobile layouts. Select the layout with
+`--ui-mode {desktop,mobile,both}`:
+
+```bash
+# Desktop layout on the default port
+python -m drone_sweeper.webapp --data-dir ./data --ui-mode desktop
+
+# Mobile-optimised layout for phones/tablets
+python -m drone_sweeper.webapp --data-dir ./data --ui-mode mobile --port 8082
+
+# Serve both layouts simultaneously
+python -m drone_sweeper.webapp --data-dir ./data --ui-mode both
+```
+
+On a Raspberry Pi 4, prefer the `mobile` or `both` modes so field teams can use
+a phone/tablet while the Pi renders the lighter-weight mobile view at
+`http://<pi>:8080` (desktop view remains at `/desktop` when running with
+`--ui-mode both`). Pair this with a lower refresh rate by running a reverse
+proxy (e.g. `nginx`) if CPU is constrained.
 
 ### Signal Syntax
 
