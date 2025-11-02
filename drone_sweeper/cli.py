@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import signal
 import sys
@@ -11,9 +10,13 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 from .gps import GPSReader
+from .events import DetectionEvent
+from .models import ClassificationResult, classify_detection
 from .sweep import (
     HackRFSweepRunner,
     SignalOfInterest,
+    Detection,
+    SweepFrame,
     detect_signals,
     write_detections_csv,
 )
@@ -166,6 +169,23 @@ def ensure_signals(values: Sequence[str], default_tolerance_hz: float) -> List[S
     return [parse_signal_argument(value, default_tolerance_hz) for value in values]
 
 
+def _build_feature_vector(frame: SweepFrame, detection: Detection) -> List[float]:
+    span_hz = float(frame.stop_frequency_hz - frame.start_frequency_hz) or 1.0
+    relative_frequency = (detection.frequency_hz - frame.start_frequency_hz) / span_hz
+    frequency_offset = detection.frequency_hz - detection.signal.frequency_hz
+    return [
+        float(detection.power_db),
+        float(frequency_offset),
+        float(relative_frequency),
+        float(frame.bin_size_hz),
+    ]
+
+
+def _summarise_classification(result: ClassificationResult) -> str:
+    confidence_pct = result.confidence * 100.0
+    return f"{result.label} ({confidence_pct:.1f}% confidence)"
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
@@ -218,23 +238,47 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 write_detections_csv(csv_path, frame, detections)
 
             for detection in detections:
-                payload = {
-                    "timestamp": frame.timestamp.isoformat(),
-                    "label": detection.signal.label,
+                features = _build_feature_vector(frame, detection)
+                metadata = {
+                    "signal_label": detection.signal.label,
                     "frequency_hz": detection.frequency_hz,
-                    "power_db": detection.power_db,
                     "sensor_id": args.sensor_id,
                 }
-                if gps_fix:
-                    payload["gps"] = gps_fix.as_dict()
+                try:
+                    classification = classify_detection(features, metadata)
+                except Exception:  # pragma: no cover - defensive logging
+                    LOGGER.exception("Classifier failed, marking detection as unknown")
+                    classification = ClassificationResult(
+                        label="unknown",
+                        confidence=0.0,
+                        probabilities={},
+                        model_name=None,
+                        model_version=None,
+                    )
+
+                detection_event = DetectionEvent(
+                    timestamp=frame.timestamp,
+                    label=detection.signal.label,
+                    frequency_hz=detection.frequency_hz,
+                    power_db=detection.power_db,
+                    sensor_id=args.sensor_id,
+                    gps=gps_fix,
+                    ai_label=classification.label,
+                    ai_confidence=classification.confidence,
+                    ai_probabilities=classification.probabilities,
+                    model_name=classification.model_name,
+                    model_version=classification.model_version,
+                )
+
                 if args.print_json:
-                    print(json.dumps(payload), flush=True)
+                    print(detection_event.to_json(), flush=True)
                 else:
                     LOGGER.info(
-                        "Detection %s at %.0f Hz (%.1f dB)",
+                        "Detection %s at %.0f Hz (%.1f dB) -> %s",
                         detection.signal.label,
                         detection.frequency_hz,
                         detection.power_db,
+                        _summarise_classification(classification),
                     )
 
                 if tdoa_logger:

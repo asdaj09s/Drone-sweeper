@@ -4,4 +4,6 @@ __all__ = [
     "gps",
     "sweep",
     "tdoa",
+    "events",
+    "models",
 ]
