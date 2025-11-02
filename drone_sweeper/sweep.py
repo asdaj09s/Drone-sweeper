@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import shlex
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Iterator, List, Optional, Sequence
+from typing import Iterable, Iterator, List, Optional, Sequence, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
+
+    from .analysis import DecodedMetadata, RollingFFTAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +156,7 @@ class Detection:
     frequency_hz: float
     power_db: float
     bin_index: int
+    analysis: List["DecodedMetadata"] = field(default_factory=list)
 
 
 def detect_signals(frame: SweepFrame, signals: Iterable[SignalOfInterest]) -> List[Detection]:
@@ -189,18 +196,138 @@ def write_detections_csv(path: Path, frame: SweepFrame, detections: Sequence[Det
     with path.open("a", encoding="utf-8") as fp:
         if header_needed:
             fp.write(
-                "timestamp,start_frequency_hz,stop_frequency_hz,bin_size_hz,label,center_frequency_hz,detected_frequency_hz,power_db,bin_index\n"
+                "timestamp,start_frequency_hz,stop_frequency_hz,bin_size_hz,label,center_frequency_hz,detected_frequency_hz,power_db,bin_index,analysis_modulations,analysis_payloads,analysis_metadata\n"
             )
         for detection in detections:
+            modulations = ";".join(meta.modulation for meta in detection.analysis)
+            payloads = ";".join(meta.payload or "" for meta in detection.analysis if meta.payload)
+            metadata = [
+                {
+                    "modulation": meta.modulation,
+                    "confidence": meta.confidence,
+                    "bandwidth_hz": meta.bandwidth_hz,
+                    "payload": meta.payload,
+                    "extra": meta.extra,
+                }
+                for meta in detection.analysis
+            ]
+            metadata_json = json.dumps(metadata, separators=(",", ":")) if metadata else ""
             fp.write(
-                f"{frame.timestamp.isoformat()},{frame.start_frequency_hz},{frame.stop_frequency_hz},{frame.bin_size_hz},{detection.signal.label},{detection.signal.frequency_hz},{detection.frequency_hz},{detection.power_db:.2f},{detection.bin_index}\n"
+                f"{frame.timestamp.isoformat()},{frame.start_frequency_hz},{frame.stop_frequency_hz},{frame.bin_size_hz},{detection.signal.label},{detection.signal.frequency_hz},{detection.frequency_hz},{detection.power_db:.2f},{detection.bin_index},{modulations},{payloads},{metadata_json}\n"
             )
+
+
+class IQStreamRunner:
+    """Captures IQ samples around a detection and forwards them to an analyzer."""
+
+    def __init__(
+        self,
+        analyzer: "RollingFFTAnalyzer",
+        *,
+        sample_rate: int,
+        capture_seconds: float = 0.25,
+        additional_args: Optional[Sequence[str]] = None,
+    ) -> None:
+        if sample_rate <= 0:
+            raise ValueError("sample_rate must be positive for IQ capture")
+        if capture_seconds <= 0:
+            raise ValueError("capture_seconds must be positive")
+        self.analyzer = analyzer
+        self.sample_rate = sample_rate
+        self.capture_seconds = capture_seconds
+        self.additional_args = list(additional_args or [])
+
+    def capture_and_analyze(
+        self,
+        detection: Detection,
+        ranges_hz: Sequence[tuple[float, float]],
+        *,
+        tolerance_hz: Optional[float] = None,
+    ) -> List["DecodedMetadata"]:
+        """Capture IQ data for ``detection`` and return decoded metadata."""
+
+        try:
+            iq_samples = self._capture_samples(detection.frequency_hz)
+        except FileNotFoundError:
+            logger.error(
+                "hackrf_transfer is not available on the system; unable to run IQ analysis"
+            )
+            return []
+        except Exception:  # pragma: no cover - hardware interaction
+            logger.exception("Unable to capture IQ samples for analysis")
+            return []
+
+        if iq_samples.size == 0:
+            return []
+
+        peaks = self.analyzer.process(
+            iq_samples,
+            center_frequency_hz=detection.frequency_hz,
+            sweep_ranges=ranges_hz,
+        )
+        if not peaks:
+            return []
+
+        tol = tolerance_hz or self.sample_rate / max(1, self.analyzer.config.window_size)
+        metadata: List["DecodedMetadata"] = []
+        for peak in peaks:
+            if abs(peak.frequency_hz - detection.frequency_hz) <= tol:
+                metadata.extend(peak.metadata)
+        return metadata
+
+    def _capture_samples(self, center_frequency_hz: float) -> "np.ndarray":
+        import numpy as np
+
+        command = [
+            "hackrf_transfer",
+            "-f",
+            str(int(center_frequency_hz)),
+            "-s",
+            str(int(self.sample_rate)),
+            "-r",
+            "-",
+            "-n",
+            str(int(self.sample_rate * self.capture_seconds)),
+        ]
+        command.extend(self.additional_args)
+        logger.debug("Running IQ capture command: %s", shlex.join(command))
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert process.stdout is not None
+
+        bytes_needed = int(self.sample_rate * self.capture_seconds * 2)
+        buffer = bytearray()
+        while len(buffer) < bytes_needed:
+            chunk = process.stdout.read(bytes_needed - len(buffer))
+            if not chunk:
+                break
+            buffer.extend(chunk)
+
+        process.terminate()
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:  # pragma: no cover - defensive
+            process.kill()
+
+        if len(buffer) < 2:
+            return np.array([], dtype=np.complex64)
+
+        raw = np.frombuffer(buffer, dtype=np.int8).astype(np.float32)
+        if raw.size % 2:
+            raw = raw[:-1]
+        i_samples = raw[0::2] / 127.5
+        q_samples = raw[1::2] / 127.5
+        return (i_samples + 1j * q_samples).astype(np.complex64)
 
 
 __all__ = [
     "SweepFrame",
     "SignalOfInterest",
     "HackRFSweepRunner",
+    "IQStreamRunner",
     "Detection",
     "detect_signals",
     "write_detections_csv",
