@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import signal
 import sys
@@ -12,12 +11,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, List, Optional, Sequence
 
-from .gps import GPSFix, GPSReader
+from .gps import GPSReader
+from .events import DetectionEvent
+from .models import ClassificationResult, classify_detection
 from .sweep import (
     HackRFSweepRunner,
     IQStreamRunner,
     SignalOfInterest,
     Detection,
+    SweepFrame,
     detect_signals,
     write_detections_csv,
 )
@@ -269,64 +271,21 @@ def ensure_signals(values: Sequence[str], default_tolerance_hz: float) -> List[S
     return [parse_signal_argument(value, default_tolerance_hz) for value in values]
 
 
-def serialize_analysis(metadata: Sequence[DecodedMetadata]) -> List[dict[str, Any]]:
+def _build_feature_vector(frame: SweepFrame, detection: Detection) -> List[float]:
+    span_hz = float(frame.stop_frequency_hz - frame.start_frequency_hz) or 1.0
+    relative_frequency = (detection.frequency_hz - frame.start_frequency_hz) / span_hz
+    frequency_offset = detection.frequency_hz - detection.signal.frequency_hz
     return [
-        {
-            "modulation": item.modulation,
-            "confidence": item.confidence,
-            "bandwidth_hz": item.bandwidth_hz,
-            "payload": item.payload,
-            "extra": item.extra,
-        }
-        for item in metadata
+        float(detection.power_db),
+        float(frequency_offset),
+        float(relative_frequency),
+        float(frame.bin_size_hz),
     ]
 
 
-def write_analysis_jsonl(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fp:
-        fp.write(json.dumps(payload) + "\n")
-
-
-def append_cot_event(
-    path: Path,
-    frame_timestamp: datetime,
-    detection: Detection,
-    sensor_id: str,
-    gps_fix: Optional[GPSFix],
-) -> None:
-    event_time = frame_timestamp.astimezone(timezone.utc)
-    stale_time = (event_time + timedelta(seconds=30)).astimezone(timezone.utc)
-    uid = f"drone-sweeper-{uuid.uuid4()}"
-
-    lat = getattr(gps_fix, "latitude", None) if gps_fix else None
-    lon = getattr(gps_fix, "longitude", None) if gps_fix else None
-    hae = getattr(gps_fix, "altitude_m", None) if gps_fix else None
-    if lat is None or lon is None:
-        lat = 0.0
-        lon = 0.0
-    if hae is None:
-        hae = 0.0
-
-    remarks = f"{detection.signal.label} @ {detection.frequency_hz:.0f}Hz ({detection.power_db:.1f}dB)"
-    if detection.analysis:
-        summary = ", ".join(
-            f"{meta.modulation}:{meta.confidence:.2f}" for meta in detection.analysis
-        )
-        remarks = f"{remarks} [{summary}]"
-
-    event = (
-        f"<event version=\"2.0\" type=\"a-f-G-U-C\" uid=\"{uid}\" "
-        f"time=\"{event_time.isoformat()}\" start=\"{event_time.isoformat()}\" "
-        f"stale=\"{stale_time.isoformat()}\">"
-        f"<point lat=\"{lat:.6f}\" lon=\"{lon:.6f}\" hae=\"{hae:.2f}\" ce=\"999999\" le=\"999999\"/>"
-        f"<detail><contact callsign=\"{sensor_id}\"/>"
-        f"<remarks>{remarks}</remarks></detail></event>"
-    )
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fp:
-        fp.write(event + "\n")
+def _summarise_classification(result: ClassificationResult) -> str:
+    confidence_pct = result.confidence * 100.0
+    return f"{result.label} ({confidence_pct:.1f}% confidence)"
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -433,42 +392,48 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 write_detections_csv(csv_path, frame, detections)
 
             for detection in detections:
-                payload = {
-                    "timestamp": frame.timestamp.isoformat(),
-                    "label": detection.signal.label,
+                features = _build_feature_vector(frame, detection)
+                metadata = {
+                    "signal_label": detection.signal.label,
                     "frequency_hz": detection.frequency_hz,
-                    "power_db": detection.power_db,
                     "sensor_id": args.sensor_id,
                 }
-                if gps_fix:
-                    payload["gps"] = gps_fix.as_dict()
-                payload["analysis"] = serialize_analysis(detection.analysis)
-                if analysis_jsonl_path:
-                    write_analysis_jsonl(analysis_jsonl_path, payload)
-                if cot_path:
-                    append_cot_event(cot_path, frame.timestamp, detection, args.sensor_id, gps_fix)
+                try:
+                    classification = classify_detection(features, metadata)
+                except Exception:  # pragma: no cover - defensive logging
+                    LOGGER.exception("Classifier failed, marking detection as unknown")
+                    classification = ClassificationResult(
+                        label="unknown",
+                        confidence=0.0,
+                        probabilities={},
+                        model_name=None,
+                        model_version=None,
+                    )
+
+                detection_event = DetectionEvent(
+                    timestamp=frame.timestamp,
+                    label=detection.signal.label,
+                    frequency_hz=detection.frequency_hz,
+                    power_db=detection.power_db,
+                    sensor_id=args.sensor_id,
+                    gps=gps_fix,
+                    ai_label=classification.label,
+                    ai_confidence=classification.confidence,
+                    ai_probabilities=classification.probabilities,
+                    model_name=classification.model_name,
+                    model_version=classification.model_version,
+                )
+
                 if args.print_json:
-                    print(json.dumps(payload), flush=True)
+                    print(detection_event.to_json(), flush=True)
                 else:
-                    if detection.analysis:
-                        summary = ", ".join(
-                            f"{meta.modulation}:{meta.confidence:.2f}"
-                            for meta in detection.analysis
-                        )
-                        LOGGER.info(
-                            "Detection %s at %.0f Hz (%.1f dB) [%s]",
-                            detection.signal.label,
-                            detection.frequency_hz,
-                            detection.power_db,
-                            summary,
-                        )
-                    else:
-                        LOGGER.info(
-                            "Detection %s at %.0f Hz (%.1f dB)",
-                            detection.signal.label,
-                            detection.frequency_hz,
-                            detection.power_db,
-                        )
+                    LOGGER.info(
+                        "Detection %s at %.0f Hz (%.1f dB) -> %s",
+                        detection.signal.label,
+                        detection.frequency_hz,
+                        detection.power_db,
+                        _summarise_classification(classification),
+                    )
 
                 if tdoa_logger:
                     tdoa_event = TDOAEvent(
