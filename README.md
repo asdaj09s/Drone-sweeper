@@ -77,6 +77,57 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 4) Run the web UI
+# 4) Run the RF capture CLI with GPS + TDOA logging
+python3 -m drone_sweeper.cli \
+  --sweep-range 902M:928M \
+  --signal dji:915M:500k \
+  --gps-port /dev/ttyUSB0 \
+  --csv-log data/detections.csv \
+  --tdoa-log data/tdoa.jsonl \
+  --print-json
+
+# (Legacy) Run the web UI
 python3 drone_sweeper_pi4.py ui --dir ./data --port 8081
 # Open: http://<pi-or-host>:8081
+
+```
+
+## GPS-Aware Sweep Logging & TDOA Export
+
+The `drone_sweeper.cli` entry point adds moving-platform support for HackRF sweeps. It:
+
+- Reads live GPS fixes from a USB puck (any NMEA 0183 serial device).
+- Streams `hackrf_sweep --format csv` output.
+- Flags user-specified signals of interest.
+- Emits detections to the console (optionally as JSON) and/or CSV.
+- Writes TDOA-friendly JSONL records with UTC + monotonic timestamps for multi-sensor fusion.
+
+### Quickstart
+
+```bash
+python3 -m drone_sweeper.cli \
+  --sweep-range 2400M:2500M \
+  --signal wifi:2462M:1M \
+  --signal custom:5800M:1M \
+  --gps-port /dev/ttyACM0 \
+  --csv-log /mnt/logs/detections.csv \
+  --tdoa-log /mnt/logs/tdoa.jsonl \
+  --min-power -30 \
+  --print-json
+```
+
+### Signal Syntax
+
+Pass each signal of interest with `--signal label:frequency[:tolerance]`. Frequencies support
+`Hz`, `kHz`, `MHz`, `GHz`, or shorthand (`915M`). Tolerance defaults to `25 kHz` when omitted.
+
+### Output Artifacts
+
+- **CSV log** — Quick-look detections for situational awareness (`--csv-log`).
+- **TDOA JSONL** — High-resolution timestamps + GPS metadata (`--tdoa-log`). Consume this with
+  downstream tooling to solve for emitter positions using multiple moving receivers.
+
+### Sensor Identification
+
+Use `--sensor-id` to tag detections when multiple Drone Sweeper nodes are operating. The default
+is `<hostname>-hackrf`.
